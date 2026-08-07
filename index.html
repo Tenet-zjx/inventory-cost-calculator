@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>库存加权平均单价计算器</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        primary: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a' }
+      }
+    }
+  }
+}
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;background:#f8fafc;color:#1e293b}
+.upload-zone{border:2px dashed #93c5fd;border-radius:12px;transition:all .2s}
+.upload-zone:hover,.upload-zone.drag-over{border-color:#2563eb;background:#eff6ff}
+.fade-in{animation:fadeIn .4s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.table-row:nth-child(even){background:#f8fafc}
+.table-row:hover{background:#eff6ff}
+.card-shadow{box-shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06)}
+.card-shadow-lg{box-shadow:0 4px 6px rgba(0,0,0,.07),0 2px 4px rgba(0,0,0,.06)}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useCallback, useMemo, useEffect } = React;
+
+/* ========== 列名智能匹配 ========== */
+const COL_PATTERNS = {
+  initial: {
+    skuCode: ['SKU编码','SKU代码','SKU号','物料编码','物料代码','物料号','商品编码','商品代码','sku编码','sku代码','SKU','skucode','物料编号'],
+    skuName: ['SKU名称','物料名称','商品名称','sku名称','品名','名称','存货名称','物料描述'],
+    skuType: ['SKU类型','物料类型','商品类型','sku类型','类型','存货类别','物料属性'],
+    qty: ['期初数量','期初库存数量','期初数','初数量','初始数量','opening_qty','begin_qty'],
+    price: ['期初单价','期初库存单价','期初价格','初单价','初始单价','opening_price','begin_price'],
+    amount: ['期初金额','期初库存金额','期初价值','初金额','初始金额','opening_amount','begin_amount']
+  },
+  purchase: {
+    skuCode: ['SKU编码','SKU代码','SKU号','物料编码','物料代码','物料号','商品编码','商品代码','sku编码','sku代码','SKU','skucode','物料编号'],
+    skuName: ['SKU名称','物料名称','商品名称','sku名称','品名','名称','存货名称','物料描述'],
+    skuType: ['SKU类型','物料类型','商品类型','sku类型','类型','存货类别','物料属性'],
+    qty: ['采购数量','采购入库数量','采购数','入库数量','入库数','purchase_qty','采购量'],
+    price: ['采购单价','采购入库单价','采购价格','入库单价','purchase_price','采购价'],
+    amount: ['采购金额','采购入库金额','采购价值','入库金额','purchase_amount','采购额']
+  },
+  assembly: {
+    parentCode: ['父件SKU','父件编码','父件SKU编码','父件代码','父件物料编码','父件号','父SKU','parent_sku'],
+    parentName: ['父件名称','父件SKU名称','父件品名','父名称','parent_name'],
+    assemblyQty: ['组装数量','组装入库数量','组装数','装配数量','assembly_qty','组合数量'],
+    childCode: ['子件SKU','子件编码','子件SKU编码','子件代码','子件物料编码','子件号','子SKU','child_sku'],
+    childName: ['子件名称','子件SKU名称','子件品名','子名称','child_name'],
+    unitUsage: ['单件耗用量','单件用量','单位耗用量','用量','耗用量','BOM用量','unit_usage','单位用量','定额']
+  }
+};
+
+function matchColumn(headers, patterns) {
+  const result = {};
+  const used = new Set();
+  for (const key of Object.keys(patterns)) {
+    for (const pat of patterns[key]) {
+      const idx = headers.findIndex((h, i) => !used.has(i) && h && h.toString().trim().replace(/\s+/g,'') === pat.replace(/\s+/g,''));
+      if (idx !== -1) { result[key] = idx; used.add(idx); break; }
+    }
+    if (result[key] === undefined) {
+      for (const pat of patterns[key]) {
+        const idx = headers.findIndex((h, i) => !used.has(i) && h && h.toString().trim().includes(pat.replace(/\s+/g,'')));
+        if (idx !== -1) { result[key] = idx; used.add(idx); break; }
+      }
+    }
+  }
+  return result;
+}
+
+function parseSheet(workbook, sheetName) {
+  const ws = workbook.Sheets[sheetName];
+  if (!ws) return { headers: [], rows: [] };
+  const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  if (raw.length < 2) return { headers: [], rows: [] };
+  const headers = raw[0].map(h => h ? h.toString().trim() : '');
+  const rows = raw.slice(1).filter(r => r.some(c => c !== '' && c !== null && c !== undefined));
+  return { headers, rows };
+}
+
+function numVal(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
+/* ========== SVG 图表组件 ========== */
+const BarChart = ({ data, width, height, title }) => {
+  if (!data || data.length === 0) return null;
+  const margin = { top: 30, right: 20, bottom: 60, left: 70 };
+  const cw = width - margin.left - margin.right;
+  const ch = height - margin.top - margin.bottom;
+  const maxVal = Math.max(...data.map(d => d.initial + d.purchase + d.assembly), 1);
+  const barW = Math.min(30, (cw / data.length) * 0.7);
+  const gap = cw / data.length;
+
+  const colors = { initial: '#93c5fd', purchase: '#3b82f6', assembly: '#1e40af' };
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <text x={width/2} y={18} textAnchor="middle" fontSize={13} fontWeight={600} fill="#334155">{title}</text>
+      {data.map((d, i) => {
+        const x = margin.left + i * gap + gap/2 - barW/2;
+        const hI = (d.initial / maxVal) * ch;
+        const hP = (d.purchase / maxVal) * ch;
+        const hA = (d.assembly / maxVal) * ch;
+        const baseY = margin.top + ch;
+        return (
+          <g key={i}>
+            <rect x={x} y={baseY - hI - hP - hA} width={barW} height={hA} fill={colors.assembly} rx={1}/>
+            <rect x={x} y={baseY - hI - hP} width={barW} height={hP} fill={colors.purchase} rx={1}/>
+            <rect x={x} y={baseY - hI} width={barW} height={hI} fill={colors.initial} rx={1}/>
+            <text x={x + barW/2} y={baseY + 14} textAnchor="middle" fontSize={8} fill="#64748b" transform={`rotate(-45,${x+barW/2},${baseY+14})`}>{d.label.length > 8 ? d.label.slice(0,8)+'…' : d.label}</text>
+          </g>
+        );
+      })}
+      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
+        const y = margin.top + ch * (1 - p);
+        const val = maxVal * p;
+        return (
+          <g key={i}>
+            <line x1={margin.left} y1={y} x2={margin.left+cw} y2={y} stroke="#e2e8f0" strokeDasharray={i===0?"":"3,3"}/>
+            <text x={margin.left-6} y={y+4} textAnchor="end" fontSize={9} fill="#94a3b8">{val >= 10000 ? (val/10000).toFixed(1)+'万' : val.toFixed(0)}</text>
+          </g>
+        );
+      })}
+      <line x1={margin.left} y1={margin.top+ch} x2={margin.left+cw} y2={margin.top+ch} stroke="#cbd5e1"/>
+      <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top+ch} stroke="#cbd5e1"/>
+    </svg>
+  );
+};
+
+const DonutChart = ({ data, width, height, title }) => {
+  if (!data || data.length === 0) return null;
+  const cx = width / 2, cy = height / 2 + 10;
+  const outerR = Math.min(width, height) / 2 - 30;
+  const innerR = outerR * 0.55;
+  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const colors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
+
+  let startAngle = -Math.PI / 2;
+  const slices = data.map((d, i) => {
+    const angle = (d.value / total) * 2 * Math.PI;
+    const slice = { ...d, startAngle, endAngle: startAngle + angle, color: colors[i % colors.length], pct: ((d.value / total) * 100).toFixed(1) };
+    startAngle += angle;
+    return slice;
+  });
+
+  const arc = (s, e, r) => {
+    const large = e - s > Math.PI ? 1 : 0;
+    return `M${cx+r*Math.cos(s)},${cy+r*Math.sin(s)} A${r},${r} 0 ${large} 1 ${cx+r*Math.cos(e)},${cy+r*Math.sin(e)}`;
+  };
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <text x={width/2} y={18} textAnchor="middle" fontSize={13} fontWeight={600} fill="#334155">{title}</text>
+      {slices.map((sl, i) => {
+        const path = arc(sl.startAngle, sl.endAngle, outerR) + ' L' + `${cx+innerR*Math.cos(sl.endAngle)},${cy+innerR*Math.sin(sl.endAngle)}` + ` A${innerR},${innerR} 0 ${sl.endAngle-sl.startAngle>Math.PI?1:0} 0 ${cx+innerR*Math.cos(sl.startAngle)},${cy+innerR*Math.sin(sl.startAngle)}` + ' Z';
+        return <path key={i} d={path} fill={sl.color} opacity={0.9}/>;
+      })}
+      <text x={cx} y={cy-6} textAnchor="middle" fontSize={14} fontWeight={700} fill="#1e293b">{total >= 10000 ? (total/10000).toFixed(1)+'万' : total.toFixed(0)}</text>
+      <text x={cx} y={cy+10} textAnchor="middle" fontSize={9} fill="#94a3b8">合计金额</text>
+      {slices.map((sl, i) => (
+        <g key={i}>
+          <rect x={i < 3 ? 10 : width - 110} y={height - 50 + (i%3)*16} width={10} height={10} fill={sl.color} rx={2}/>
+          <text x={i < 3 ? 24 : width - 96} y={height - 42 + (i%3)*16} fontSize={10} fill="#475569">{sl.label} {sl.pct}%</text>
+        </g>
+      ))}
+    </svg>
+  );
+};
+
+const HBarChart = ({ data, width, height, title }) => {
+  if (!data || data.length === 0) return null;
+  const margin = { top: 30, right: 30, bottom: 10, left: 100 };
+  const cw = width - margin.left - margin.right;
+  const ch = height - margin.top - margin.bottom;
+  const maxVal = Math.max(...data.map(d => d.value), 1);
+  const barH = Math.min(16, (ch / data.length) * 0.75);
+  const gap = ch / data.length;
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <text x={width/2} y={18} textAnchor="middle" fontSize={13} fontWeight={600} fill="#334155">{title}</text>
+      {data.map((d, i) => {
+        const y = margin.top + i * gap + gap/2 - barH/2;
+        const bw = (d.value / maxVal) * cw;
+        return (
+          <g key={i}>
+            <text x={margin.left - 6} y={y + barH/2 + 4} textAnchor="end" fontSize={9} fill="#475569">{d.label.length > 10 ? d.label.slice(0,10)+'…' : d.label}</text>
+            <rect x={margin.left} y={y} width={bw} height={barH} fill={i < 3 ? '#2563eb' : i < 10 ? '#3b82f6' : '#93c5fd'} rx={3}/>
+            <text x={margin.left + bw + 6} y={y + barH/2 + 4} fontSize={9} fill="#64748b">{d.value.toFixed(2)}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
+/* ========== 主应用 ========== */
+const App = () => {
+  const [initialData, setInitialData] = useState(null);
+  const [purchaseData, setPurchaseData] = useState(null);
+  const [assemblyData, setAssemblyData] = useState(null);
+  const [results, setResults] = useState(null);
+  const [activeTab, setActiveTab] = useState('upload');
+  const [processing, setProcessing] = useState(false);
+  const [errors, setErrors] = useState([]);
+  const fileInputRef = useRef(null);
+
+  const handleFiles = useCallback((files) => {
+    const newErrors = [];
+    Array.from(files).forEach(file => {
+      if (!/\.(xlsx|xls)$/i.test(file.name)) {
+        newErrors.push(`${file.name}: 不支持的格式，请上传 .xlsx 或 .xls 文件`);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(e.target.result, { type: 'array' });
+          const sheetNames = wb.SheetNames;
+          // Try to identify sheets by name patterns
+          let initialSheet = null, purchaseSheet = null, assemblySheet = null;
+          for (const sn of sheetNames) {
+            const lower = sn.toLowerCase();
+            if (/期初|初始|opening|initial|begin/i.test(lower)) initialSheet = sn;
+            else if (/采购|purchase|buy|procure/i.test(lower)) purchaseSheet = sn;
+            else if (/组装|装配|assembly|bom|组合/i.test(lower)) assemblySheet = sn;
+          }
+          // Fallback: if only one sheet or no match, try to detect by column headers
+          if (sheetNames.length >= 3 && !initialSheet && !purchaseSheet && !assemblySheet) {
+            initialSheet = sheetNames[0];
+            purchaseSheet = sheetNames[1];
+            assemblySheet = sheetNames[2];
+          } else if (sheetNames.length === 1) {
+            const { headers } = parseSheet(wb, sheetNames[0]);
+            const hasInitial = headers.some(h => /期初|opening|initial/i.test(h));
+            const hasPurchase = headers.some(h => /采购|purchase/i.test(h));
+            const hasAssembly = headers.some(h => /组装|assembly|子件|父件/i.test(h));
+            if (hasAssembly) assemblySheet = sheetNames[0];
+            else if (hasPurchase) purchaseSheet = sheetNames[0];
+            else if (hasInitial) initialSheet = sheetNames[0];
+          } else if (sheetNames.length === 2) {
+            for (const sn of sheetNames) {
+              const { headers } = parseSheet(wb, sn);
+              if (headers.some(h => /组装|子件|父件|assembly/i.test(h)) && !assemblySheet) assemblySheet = sn;
+              else if (headers.some(h => /采购|purchase/i.test(h)) && !purchaseSheet) purchaseSheet = sn;
+              else if (headers.some(h => /期初|opening/i.test(h)) && !initialSheet) initialSheet = sn;
+            }
+            if (!initialSheet && !purchaseSheet) { initialSheet = sheetNames[0]; purchaseSheet = sheetNames[1]; }
+          }
+
+          // Fallback: assign remaining sheets
+          const assigned = new Set([initialSheet, purchaseSheet, assemblySheet].filter(Boolean));
+          const unassigned = sheetNames.filter(s => !assigned.has(s));
+          if (!initialSheet && unassigned.length > 0) { initialSheet = unassigned.shift(); }
+          if (!purchaseSheet && unassigned.length > 0) { purchaseSheet = unassigned.shift(); }
+          if (!assemblySheet && unassigned.length > 0) { assemblySheet = unassigned.shift(); }
+
+          if (initialSheet) {
+            const { headers, rows } = parseSheet(wb, initialSheet);
+            const colMap = matchColumn(headers, COL_PATTERNS.initial);
+            setInitialData({ headers, rows, colMap, sheetName: initialSheet, fileName: file.name });
+          }
+          if (purchaseSheet) {
+            const { headers, rows } = parseSheet(wb, purchaseSheet);
+            const colMap = matchColumn(headers, COL_PATTERNS.purchase);
+            setPurchaseData({ headers, rows, colMap, sheetName: purchaseSheet, fileName: file.name });
+          }
+          if (assemblySheet) {
+            const { headers, rows } = parseSheet(wb, assemblySheet);
+            const colMap = matchColumn(headers, COL_PATTERNS.assembly);
+            setAssemblyData({ headers, rows, colMap, sheetName: assemblySheet, fileName: file.name });
+          }
+        } catch (err) {
+          newErrors.push(`${file.name}: 解析失败 - ${err.message}`);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+    if (newErrors.length > 0) setErrors(prev => [...prev, ...newErrors]);
+  }, []);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+  }, [handleFiles]);
+
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+  }, []);
+
+  const onDragLeave = useCallback((e) => {
+    e.currentTarget.classList.remove('drag-over');
+  }, []);
+
+  const calculate = useCallback(() => {
+    if (!initialData || !purchaseData) {
+      setErrors(['请至少上传期初库存和采购入库数据']);
+      return;
+    }
+    setProcessing(true);
+    setErrors([]);
+
+    setTimeout(() => {
+      try {
+        // Build initial inventory map
+        const initMap = {};
+        initialData.rows.forEach(row => {
+          const code = row[initialData.colMap.skuCode] || '';
+          if (!code) return;
+          const name = row[initialData.colMap.skuName] || '';
+          const type = (row[initialData.colMap.skuType] || '').toString().trim();
+          const qty = numVal(row[initialData.colMap.qty]);
+          const price = numVal(row[initialData.colMap.price]);
+          const amount = numVal(row[initialData.colMap.amount]);
+          if (!initMap[code]) {
+            initMap[code] = { code, name, type, initQty: 0, initPrice: 0, initAmount: 0 };
+          }
+          initMap[code].initQty += qty;
+          initMap[code].initAmount += (amount || qty * price);
+          if (price && !initMap[code].initPrice) initMap[code].initPrice = price;
+        });
+
+        // Build purchase map
+        const purchMap = {};
+        purchaseData.rows.forEach(row => {
+          const code = row[purchaseData.colMap.skuCode] || '';
+          if (!code) return;
+          const name = row[purchaseData.colMap.skuName] || '';
+          const type = (row[purchaseData.colMap.skuType] || '').toString().trim();
+          const qty = numVal(row[purchaseData.colMap.qty]);
+          const price = numVal(row[purchaseData.colMap.price]);
+          const amount = numVal(row[purchaseData.colMap.amount]);
+          if (!purchMap[code]) {
+            purchMap[code] = { code, name, type, purchQty: 0, purchPrice: 0, purchAmount: 0 };
+          }
+          purchMap[code].purchQty += qty;
+          purchMap[code].purchAmount += (amount || qty * price);
+          if (price && !purchMap[code].purchPrice) purchMap[code].purchPrice = price;
+        });
+
+        // Build assembly data
+        const assemblyMap = {}; // parentCode -> { children: [{childCode, unitUsage}], totalQty }
+        const parentChildRelation = {}; // parentCode -> [{ childCode, unitUsage }]
+        if (assemblyData && assemblyData.colMap.parentCode !== undefined) {
+          assemblyData.rows.forEach(row => {
+            const parentCode = row[assemblyData.colMap.parentCode] || '';
+            const parentName = row[assemblyData.colMap.parentName] || '';
+            const assemblyQty = numVal(row[assemblyData.colMap.assemblyQty]);
+            const childCode = row[assemblyData.colMap.childCode] || '';
+            const childName = row[assemblyData.colMap.childName] || '';
+            const unitUsage = numVal(row[assemblyData.colMap.unitUsage]);
+            if (!parentCode) return;
+            if (!assemblyMap[parentCode]) {
+              assemblyMap[parentCode] = { code: parentCode, name: parentName, totalQty: 0, children: [] };
+            }
+            assemblyMap[parentCode].totalQty += assemblyQty;
+            if (childCode) {
+              assemblyMap[parentCode].children.push({ childCode, childName, unitUsage });
+              if (!parentChildRelation[parentCode]) parentChildRelation[parentCode] = [];
+              parentChildRelation[parentCode].push({ childCode, unitUsage });
+            }
+          });
+        }
+
+        // Merge all SKUs
+        const allCodes = new Set([...Object.keys(initMap), ...Object.keys(purchMap), ...Object.keys(assemblyMap)]);
+
+        // Determine SKU type
+        const parentCodes = new Set(Object.keys(assemblyMap));
+        const skuInfo = {};
+        allCodes.forEach(code => {
+          const isParent = parentCodes.has(code);
+          let type = '';
+          if (initMap[code]) type = initMap[code].type;
+          else if (purchMap[code]) type = purchMap[code].type;
+          if (!type) type = isParent ? '父件' : '子件';
+          // Override: if in assemblyMap as parent, it's definitely a parent
+          if (isParent) type = '父件';
+          const name = (initMap[code] && initMap[code].name) || (purchMap[code] && purchMap[code].name) || (assemblyMap[code] && assemblyMap[code].name) || code;
+          skuInfo[code] = { code, name, type };
+        });
+
+        // Step 1: Calculate child (子件) weighted average price
+        const weightedPrice = {};
+        const childCodes = [...allCodes].filter(c => skuInfo[c].type !== '父件');
+        childCodes.forEach(code => {
+          const initQty = initMap[code] ? initMap[code].initQty : 0;
+          const initAmount = initMap[code] ? initMap[code].initAmount : 0;
+          const purchQty = purchMap[code] ? purchMap[code].purchQty : 0;
+          const purchAmount = purchMap[code] ? purchMap[code].purchAmount : 0;
+          const totalQty = initQty + purchQty;
+          const totalAmount = initAmount + purchAmount;
+          weightedPrice[code] = totalQty > 0 ? totalAmount / totalQty : 0;
+        });
+
+        // Step 2: Calculate parent (父件) weighted average price
+        const parentResultData = {};
+        parentCodes.forEach(parentCode => {
+          const initQty = initMap[parentCode] ? initMap[parentCode].initQty : 0;
+          const initAmount = initMap[parentCode] ? initMap[parentCode].initAmount : 0;
+          const purchQty = purchMap[parentCode] ? purchMap[parentCode].purchQty : 0;
+          const purchAmount = purchMap[parentCode] ? purchMap[parentCode].purchAmount : 0;
+
+          // Assembly amount = totalAssemblyQty * sum(childWeightedPrice * unitUsage)
+          const asm = assemblyMap[parentCode];
+          const totalAssemblyQty = asm ? asm.totalQty : 0;
+          let assemblyAmount = 0;
+          if (asm && asm.children.length > 0) {
+            // Group by childCode and sum unitUsage (in case same child appears in multiple rows)
+            const childUsageMap = {};
+            asm.children.forEach(c => {
+              if (!childUsageMap[c.childCode]) childUsageMap[c.childCode] = 0;
+              childUsageMap[c.childCode] += c.unitUsage;
+            });
+            let sumCost = 0;
+            Object.entries(childUsageMap).forEach(([childCode, usage]) => {
+              const childPrice = weightedPrice[childCode] || 0;
+              sumCost += childPrice * usage;
+            });
+            assemblyAmount = totalAssemblyQty * sumCost;
+          }
+
+          const totalQty = initQty + purchQty + totalAssemblyQty;
+          const totalAmount = initAmount + purchAmount + assemblyAmount;
+          const wp = totalQty > 0 ? totalAmount / totalQty : 0;
+          weightedPrice[parentCode] = wp;
+
+          parentResultData[parentCode] = {
+            initQty, initAmount, purchQty, purchAmount,
+            assemblyQty: totalAssemblyQty, assemblyAmount,
+            totalQty, totalAmount, weightedPrice: wp
+          };
+        });
+
+        // Build full result list
+        const resultList = [];
+        allCodes.forEach(code => {
+          const info = skuInfo[code];
+          const initQty = initMap[code] ? initMap[code].initQty : 0;
+          const initAmount = initMap[code] ? initMap[code].initAmount : 0;
+          const purchQty = purchMap[code] ? purchMap[code].purchQty : 0;
+          const purchAmount = purchMap[code] ? purchMap[code].purchAmount : 0;
+          const isParent = parentCodes.has(code);
+          const assemblyQty = isParent ? (parentResultData[code] ? parentResultData[code].assemblyQty : 0) : 0;
+          const assemblyAmount = isParent ? (parentResultData[code] ? parentResultData[code].assemblyAmount : 0) : 0;
+          const totalQty = initQty + purchQty + assemblyQty;
+          const totalAmount = initAmount + purchAmount + assemblyAmount;
+          resultList.push({
+            code, name: info.name, type: info.type,
+            initQty, initAmount, purchQty, purchAmount,
+            assemblyQty, assemblyAmount,
+            totalQty, totalAmount,
+            weightedPrice: weightedPrice[code] || 0
+          });
+        });
+
+        resultList.sort((a, b) => a.code.localeCompare(b.code));
+        setResults(resultList);
+        setActiveTab('results');
+      } catch (err) {
+        setErrors([`计算失败: ${err.message}`]);
+      }
+      setProcessing(false);
+    }, 100);
+  }, [initialData, purchaseData, assemblyData]);
+
+  const exportExcel = useCallback(() => {
+    if (!results) return;
+    const wsData = [
+      ['SKU编码', 'SKU名称', 'SKU类型', '期初数量', '期初金额', '采购数量', '采购金额', '组装数量', '组装金额', '期末总数量', '期末总金额', '加权平均单价'],
+      ...results.map(r => [r.code, r.name, r.type, r.initQty, r.initAmount, r.purchQty, r.purchAmount, r.assemblyQty, r.assemblyAmount, r.totalQty, r.totalAmount, r.weightedPrice])
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    // Set column widths
+    ws['!cols'] = [
+      {wch:15},{wch:20},{wch:8},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:14}
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '期末库存加权平均单价');
+    XLSX.writeFile(wb, '期末库存加权平均单价.xlsx');
+  }, [results]);
+
+  // Computed stats
+  const stats = useMemo(() => {
+    if (!results) return null;
+    const childResults = results.filter(r => r.type !== '父件');
+    const parentResults = results.filter(r => r.type === '父件');
+    const totalInit = results.reduce((s, r) => s + r.initAmount, 0);
+    const totalPurch = results.reduce((s, r) => s + r.purchAmount, 0);
+    const totalAssembly = results.reduce((s, r) => s + r.assemblyAmount, 0);
+    const totalAmount = results.reduce((s, r) => s + r.totalAmount, 0);
+    const childAmount = childResults.reduce((s, r) => s + r.totalAmount, 0);
+    const parentAmount = parentResults.reduce((s, r) => s + r.totalAmount, 0);
+    return {
+      totalSKU: results.length,
+      childCount: childResults.length,
+      parentCount: parentResults.length,
+      totalInit, totalPurch, totalAssembly, totalAmount,
+      childAmount, parentAmount,
+      avgPrice: results.length > 0 ? results.reduce((s, r) => s + r.weightedPrice, 0) / results.length : 0
+    };
+  }, [results]);
+
+  const barChartData = useMemo(() => {
+    if (!results) return [];
+    return results
+      .sort((a, b) => (b.initAmount + b.purchAmount + b.assemblyAmount) - (a.initAmount + a.purchAmount + a.assemblyAmount))
+      .slice(0, 20)
+      .map(r => ({ label: r.name || r.code, initial: r.initAmount, purchase: r.purchAmount, assembly: r.assemblyAmount }));
+  }, [results]);
+
+  const donutData = useMemo(() => {
+    if (!stats) return [];
+    return [
+      { label: '子件金额', value: stats.childAmount },
+      { label: '父件金额', value: stats.parentAmount }
+    ];
+  }, [stats]);
+
+  const rankData = useMemo(() => {
+    if (!results) return [];
+    return results
+      .sort((a, b) => b.weightedPrice - a.weightedPrice)
+      .slice(0, 20)
+      .map(r => ({ label: r.name || r.code, value: r.weightedPrice }));
+  }, [results]);
+
+  const formatNum = (n) => {
+    if (Math.abs(n) >= 10000) return (n / 10000).toFixed(2) + '万';
+    return n.toFixed(2);
+  };
+
+  const formatMoney = (n) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 card-shadow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-primary-600 rounded-lg flex items-center justify-center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-slate-800">库存加权平均单价计算器</h1>
+              <p className="text-xs text-slate-400">月末一次加权平均法</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setActiveTab('upload')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'upload' ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+              数据导入
+            </button>
+            <button onClick={() => results && setActiveTab('results')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'results' ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'} ${!results ? 'opacity-50 cursor-not-allowed' : ''}`}>
+              计算结果
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        {errors.length > 0 && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4 fade-in">
+            {errors.map((err, i) => <p key={i} className="text-red-600 text-sm">⚠ {err}</p>)}
+            <button onClick={() => setErrors([])} className="mt-2 text-xs text-red-400 hover:text-red-600">关闭</button>
+          </div>
+        )}
+
+        {activeTab === 'upload' && (
+          <div className="fade-in space-y-6">
+            {/* Upload Zone */}
+            <div
+              className="upload-zone p-8 text-center cursor-pointer bg-white"
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onClick={() => fileInputRef.current.click()}
+            >
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)}/>
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-16 h-16 bg-primary-50 rounded-full flex items-center justify-center">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
+                <p className="text-slate-600 font-medium">拖拽 Excel 文件到此处，或点击选择文件</p>
+                <p className="text-xs text-slate-400">支持 .xlsx / .xls 格式，可批量上传多个文件</p>
+                <p className="text-xs text-slate-400">系统将自动识别：期初库存表、采购入库表、组装入库表</p>
+              </div>
+            </div>
+
+            {/* Data Preview Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[
+                { data: initialData, title: '期初库存数据', icon: '📦', color: 'blue', fields: COL_PATTERNS.initial },
+                { data: purchaseData, title: '采购入库数据', icon: '🛒', color: 'green', fields: COL_PATTERNS.purchase },
+                { data: assemblyData, title: '组装入库数据', icon: '🔧', color: 'amber', fields: COL_PATTERNS.assembly }
+              ].map(({ data, title, icon, color, fields }, idx) => (
+                <div key={idx} className={`bg-white rounded-xl border border-slate-200 overflow-hidden card-shadow`}>
+                  <div className={`px-4 py-3 border-b border-slate-100 flex items-center gap-2`}>
+                    <span className="text-lg">{icon}</span>
+                    <span className="font-semibold text-slate-700 text-sm">{title}</span>
+                    {data && <span className="ml-auto text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full">{data.rows.length} 行</span>}
+                  </div>
+                  <div className="p-4">
+                    {data ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          来自: {data.fileName} → {data.sheetName}
+                        </div>
+                        <div className="text-xs text-slate-500 mb-1">检测到的列映射:</div>
+                        <div className="space-y-1">
+                          {Object.entries(data.colMap).map(([key, colIdx]) => (
+                            <div key={key} className="flex items-center gap-2 text-xs">
+                              <span className="inline-block w-2 h-2 bg-green-400 rounded-full"></span>
+                              <span className="text-slate-500">{key}</span>
+                              <span className="text-slate-400">→</span>
+                              <span className="font-medium text-slate-700">{data.headers[colIdx]}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {Object.keys(fields).filter(k => data.colMap[k] === undefined).length > 0 && (
+                          <div className="mt-2 p-2 bg-amber-50 rounded text-xs text-amber-700">
+                            ⚠ 未匹配列: {Object.keys(fields).filter(k => data.colMap[k] === undefined).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-400 text-center py-4">暂无数据</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Calculate Button */}
+            <div className="flex justify-center">
+              <button
+                onClick={calculate}
+                disabled={processing || !initialData || !purchaseData}
+                className={`px-8 py-3 rounded-xl text-white font-semibold text-base transition shadow-lg ${processing || !initialData || !purchaseData ? 'bg-slate-300 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700 shadow-primary-200'}`}
+              >
+                {processing ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    计算中...
+                  </span>
+                ) : '开始计算'}
+              </button>
+            </div>
+
+            {/* Formula explanation */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6 card-shadow">
+              <h3 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                计算公式说明
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
+                <div className="bg-slate-50 rounded-lg p-4">
+                  <p className="font-medium text-slate-700 mb-1">子件加权平均单价</p>
+                  <p className="font-mono text-xs text-primary-600 bg-primary-50 p-2 rounded mt-2">
+                    = (期初库存金额 + 采购入库金额)<br/>
+                    / (期初库存数量 + 采购入库数量)
+                  </p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-4">
+                  <p className="font-medium text-slate-700 mb-1">父件加权平均单价</p>
+                  <p className="font-mono text-xs text-primary-600 bg-primary-50 p-2 rounded mt-2">
+                    = (期初库存金额 + 采购入库金额 + 组装入库金额)<br/>
+                    / (期初库存数量 + 采购入库数量 + 组装入库数量)
+                  </p>
+                  <p className="text-xs text-slate-500 mt-2">组装入库金额 = 总组装数量 × Σ(子件加权平均单价 × 单件耗用量)</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'results' && results && stats && (
+          <div className="fade-in space-y-6">
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+              {[
+                { label: 'SKU总数', value: stats.totalSKU, icon: '📊', color: 'blue' },
+                { label: '子件数', value: stats.childCount, icon: '🔩', color: 'cyan' },
+                { label: '父件数', value: stats.parentCount, icon: '🏗', color: 'indigo' },
+                { label: '期初金额', value: formatNum(stats.totalInit), icon: '💰', color: 'emerald' },
+                { label: '采购金额', value: formatNum(stats.totalPurch), icon: '🛒', color: 'amber' },
+                { label: '组装金额', value: formatNum(stats.totalAssembly), icon: '🔧', color: 'rose' }
+              ].map(({ label, value, icon, color }, i) => (
+                <div key={i} className="bg-white rounded-xl border border-slate-200 p-4 card-shadow">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">{icon}</span>
+                    <span className="text-xs text-slate-500">{label}</span>
+                  </div>
+                  <p className="text-xl font-bold text-slate-800">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 card-shadow overflow-x-auto">
+                <BarChart data={barChartData} width={Math.max(600, barChartData.length * 35)} height={320} title="Top 20 SKU 金额构成（期初/采购/组装）"/>
+                <div className="flex justify-center gap-4 mt-2 text-xs text-slate-500">
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"/>期初金额</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded"/>采购金额</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-800 rounded"/>组装金额</span>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 card-shadow">
+                <DonutChart data={donutData} width={400} height={320} title="子件/父件金额占比"/>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-4 card-shadow overflow-x-auto">
+              <HBarChart data={rankData} width={Math.max(600, rankData.length > 0 ? 600 : 400)} height={Math.max(400, rankData.length * 24 + 60)} title="加权平均单价排行 Top 20"/>
+            </div>
+
+            {/* Detail Table */}
+            <div className="bg-white rounded-xl border border-slate-200 card-shadow overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+                  计算明细表
+                </h3>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400">共 {results.length} 条记录</span>
+                  <button onClick={exportExcel} className="flex items-center gap-1.5 px-4 py-2 bg-primary-600 text-white text-xs font-medium rounded-lg hover:bg-primary-700 transition">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    导出 Excel
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 sticky top-0 z-10">
+                    <tr>
+                      {['SKU编码','SKU名称','类型','期初数量','期初金额','采购数量','采购金额','组装数量','组装金额','期末数量','期末金额','加权平均单价'].map((h, i) => (
+                        <th key={i} className={`px-3 py-2.5 text-left text-xs font-semibold text-slate-500 whitespace-nowrap ${i >= 3 ? 'text-right' : ''}`}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {results.map((r, i) => (
+                      <tr key={i} className="table-row">
+                        <td className="px-3 py-2 text-slate-700 font-mono text-xs whitespace-nowrap">{r.code}</td>
+                        <td className="px-3 py-2 text-slate-700 whitespace-nowrap max-w-[200px] truncate">{r.name}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${r.type === '父件' ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>{r.type}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{r.initQty}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{formatMoney(r.initAmount)}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{r.purchQty}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{formatMoney(r.purchAmount)}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{r.assemblyQty}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{formatMoney(r.assemblyAmount)}</td>
+                        <td className="px-3 py-2 text-right font-medium text-slate-800 tabular-nums">{r.totalQty}</td>
+                        <td className="px-3 py-2 text-right font-medium text-slate-800 tabular-nums">{formatMoney(r.totalAmount)}</td>
+                        <td className="px-3 py-2 text-right font-bold text-primary-600 tabular-nums">{r.weightedPrice.toFixed(4)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-200 bg-white mt-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 text-center text-xs text-slate-400">
+          库存加权平均单价计算器 · 月末一次加权平均法 · 数据仅在本地浏览器处理，不上传至服务器
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
