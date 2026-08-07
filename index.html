@@ -22,18 +22,62 @@ tailwind.config = {
 </script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;background:#f8fafc;color:#1e293b}
-.upload-zone{border:2px dashed #93c5fd;border-radius:12px;transition:all .2s}
-.upload-zone:hover,.upload-zone.drag-over{border-color:#2563eb;background:#eff6ff}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;background:linear-gradient(135deg,#f0f4ff 0%,#f8fafc 40%,#fef9f0 100%);color:#1e293b;min-height:100vh}
+
+/* 顶部装饰渐变条 */
+.top-gradient-bar{height:4px;background:linear-gradient(90deg,#3b82f6,#8b5cf6,#ec4899,#f59e0b,#10b981);background-size:200% 100%;animation:gradientSlide 4s ease infinite}
+@keyframes gradientSlide{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+
+/* 上传区域 */
+.upload-zone{border:2px dashed transparent;border-radius:16px;transition:all .3s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
+.upload-zone::before{content:'';position:absolute;inset:0;border-radius:16px;padding:2px;background:var(--zone-gradient);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+.upload-zone.zone-initial{--zone-gradient:linear-gradient(135deg,#3b82f6,#06b6d4)}
+.upload-zone.zone-purchase{--zone-gradient:linear-gradient(135deg,#10b981,#34d399)}
+.upload-zone.zone-assembly{--zone-gradient:linear-gradient(135deg,#f59e0b,#f97316)}
+.upload-zone:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.1)}
+.upload-zone.drag-over{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.15)}
+.upload-zone.zone-initial.drag-over{background:rgba(59,130,246,.06)}
+.upload-zone.zone-purchase.drag-over{background:rgba(16,185,129,.06)}
+.upload-zone.zone-assembly.drag-over{background:rgba(245,158,11,.06)}
+.upload-zone.has-file{border-style:solid;border-width:1px}
+.upload-zone.zone-initial.has-file{border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.02)}
+.upload-zone.zone-purchase.has-file{border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.02)}
+.upload-zone.zone-assembly.has-file{border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.02)}
+
 .fade-in{animation:fadeIn .4s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.table-row:nth-child(even){background:#f8fafc}
-.table-row:hover{background:#eff6ff}
-.card-shadow{box-shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06)}
-.card-shadow-lg{box-shadow:0 4px 6px rgba(0,0,0,.07),0 2px 4px rgba(0,0,0,.06)}
+
+.table-row:nth-child(even){background:#fafbfc}
+.table-row:hover{background:linear-gradient(90deg,#eff6ff,#f0f9ff)!important}
+
+.card-shadow{box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)}
+.card-shadow-lg{box-shadow:0 4px 12px rgba(0,0,0,.08),0 2px 4px rgba(0,0,0,.04)}
+.card-shadow-xl{box-shadow:0 10px 25px rgba(0,0,0,.08),0 4px 10px rgba(0,0,0,.04)}
+
+/* 统计卡片渐变 */
+.stat-card-blue{background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff}
+.stat-card-cyan{background:linear-gradient(135deg,#06b6d4,#0891b2);color:#fff}
+.stat-card-indigo{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff}
+.stat-card-emerald{background:linear-gradient(135deg,#10b981,#059669);color:#fff}
+.stat-card-amber{background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff}
+.stat-card-rose{background:linear-gradient(135deg,#f43f5e,#e11d48);color:#fff}
+
+/* 必选/可选标签 */
+.field-required{background:linear-gradient(135deg,#fef2f2,#fee2e2);color:#dc2626;border:1px solid #fecaca}
+.field-optional{background:linear-gradient(135deg,#f0fdf4,#dcfce7);color:#16a34a;border:1px solid #bbf7d0}
+
+/* 列映射状态图标 */
+.map-ok{color:#16a34a}
+.map-missing-required{color:#dc2626}
+.map-missing-optional{color:#f59e0b}
+
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
 ::-webkit-scrollbar-track{background:transparent}
+
+/* 删除按钮 */
+.remove-btn{transition:all .2s}
+.remove-btn:hover{transform:scale(1.1);background:rgba(239,68,68,.15)}
 </style>
 </head>
 <body>
@@ -41,50 +85,179 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica N
 <script type="text/babel">
 const { useState, useRef, useCallback, useMemo, useEffect } = React;
 
-/* ========== 列名智能匹配 ========== */
+/* ========== 增强的列名智能匹配 ========== */
 const COL_PATTERNS = {
   initial: {
-    skuCode: ['SKU编码','SKU代码','SKU号','物料编码','物料代码','物料号','商品编码','商品代码','sku编码','sku代码','SKU','skucode','物料编号'],
-    skuName: ['SKU名称','物料名称','商品名称','sku名称','品名','名称','存货名称','物料描述'],
-    skuType: ['SKU类型','物料类型','商品类型','sku类型','类型','存货类别','物料属性'],
-    qty: ['期初数量','期初库存数量','期初数','初数量','初始数量','opening_qty','begin_qty'],
-    price: ['期初单价','期初库存单价','期初价格','初单价','初始单价','opening_price','begin_price'],
-    amount: ['期初金额','期初库存金额','期初价值','初金额','初始金额','opening_amount','begin_amount']
+    skuCode: {
+      patterns: ['SKU编码','SKU代码','SKU号','物料编码','物料代码','物料号','商品编码','商品代码','sku编码','sku代码','SKU','skucode','物料编号','存货编码','货号','品号'],
+      required: true,
+      label: 'SKU编码',
+      group: 'basic'
+    },
+    skuName: {
+      patterns: ['SKU名称','物料名称','商品名称','sku名称','品名','名称','存货名称','物料描述','品名规格','货品名称'],
+      required: false,
+      label: 'SKU名称',
+      group: 'basic'
+    },
+    skuType: {
+      patterns: ['SKU类型','物料类型','商品类型','sku类型','类型','存货类别','物料属性','分类','品类'],
+      required: false,
+      label: 'SKU类型',
+      group: 'basic'
+    },
+    qty: {
+      patterns: ['期初数量','期初库存数量','期初数','初数量','初始数量','opening_qty','begin_qty','数量','库存数量','结存数量','期末数量','收货数量','到货数量','入库数量','期初结存数量','初存数量','月初数量'],
+      required: true,
+      label: '数量',
+      group: 'amount'
+    },
+    price: {
+      patterns: ['期初单价','期初库存单价','期初价格','初单价','初始单价','opening_price','begin_price','单价','单位成本','不含税单价','含税单价','成本单价','采购单价','入库单价','标准单价','标准成本','单位价格'],
+      required: false,
+      label: '单价',
+      group: 'amount'
+    },
+    amount: {
+      patterns: ['期初金额','期初库存金额','期初价值','初金额','初始金额','opening_amount','begin_amount','金额','总金额','价税合计','不含税金额','含税金额','成本金额','总价','总计','货款','价税合计金额','总额','期初总金额'],
+      required: false,
+      label: '金额',
+      group: 'amount'
+    }
   },
   purchase: {
-    skuCode: ['SKU编码','SKU代码','SKU号','物料编码','物料代码','物料号','商品编码','商品代码','sku编码','sku代码','SKU','skucode','物料编号'],
-    skuName: ['SKU名称','物料名称','商品名称','sku名称','品名','名称','存货名称','物料描述'],
-    skuType: ['SKU类型','物料类型','商品类型','sku类型','类型','存货类别','物料属性'],
-    qty: ['采购数量','采购入库数量','采购数','入库数量','入库数','purchase_qty','采购量'],
-    price: ['采购单价','采购入库单价','采购价格','入库单价','purchase_price','采购价'],
-    amount: ['采购金额','采购入库金额','采购价值','入库金额','purchase_amount','采购额']
+    skuCode: {
+      patterns: ['SKU编码','SKU代码','SKU号','物料编码','物料代码','物料号','商品编码','商品代码','sku编码','sku代码','SKU','skucode','物料编号','存货编码','货号','品号'],
+      required: true,
+      label: 'SKU编码',
+      group: 'basic'
+    },
+    skuName: {
+      patterns: ['SKU名称','物料名称','商品名称','sku名称','品名','名称','存货名称','物料描述','品名规格','货品名称'],
+      required: false,
+      label: 'SKU名称',
+      group: 'basic'
+    },
+    skuType: {
+      patterns: ['SKU类型','物料类型','商品类型','sku类型','类型','存货类别','物料属性','分类','品类'],
+      required: false,
+      label: 'SKU类型',
+      group: 'basic'
+    },
+    qty: {
+      patterns: ['采购数量','采购入库数量','采购数','入库数量','入库数','purchase_qty','采购量','数量','收货数量','到货数量','进货数量','收货量','进货量','订货数量'],
+      required: true,
+      label: '数量',
+      group: 'amount'
+    },
+    price: {
+      patterns: ['采购单价','采购入库单价','采购价格','入库单价','purchase_price','采购价','单价','单位成本','不含税单价','含税单价','成本单价','进价','进货单价','标准单价','标准成本','单位价格'],
+      required: false,
+      label: '单价',
+      group: 'amount'
+    },
+    amount: {
+      patterns: ['采购金额','采购入库金额','采购价值','入库金额','purchase_amount','采购额','金额','总金额','价税合计','不含税金额','含税金额','成本金额','总价','总计','货款','价税合计金额','总额','采购总金额'],
+      required: false,
+      label: '金额',
+      group: 'amount'
+    }
   },
   assembly: {
-    parentCode: ['父件SKU','父件编码','父件SKU编码','父件代码','父件物料编码','父件号','父SKU','parent_sku'],
-    parentName: ['父件名称','父件SKU名称','父件品名','父名称','parent_name'],
-    assemblyQty: ['组装数量','组装入库数量','组装数','装配数量','assembly_qty','组合数量'],
-    childCode: ['子件SKU','子件编码','子件SKU编码','子件代码','子件物料编码','子件号','子SKU','child_sku'],
-    childName: ['子件名称','子件SKU名称','子件品名','子名称','child_name'],
-    unitUsage: ['单件耗用量','单件用量','单位耗用量','用量','耗用量','BOM用量','unit_usage','单位用量','定额']
+    parentCode: {
+      patterns: ['父件SKU','父件编码','父件SKU编码','父件代码','父件物料编码','父件号','父SKU','parent_sku','成品编码','成品SKU','成品代码','产品编码','产品SKU','主件编码','主件SKU'],
+      required: true,
+      label: '父件编码',
+      group: 'parent'
+    },
+    parentName: {
+      patterns: ['父件名称','父件SKU名称','父件品名','父名称','parent_name','成品名称','产品名称','主件名称'],
+      required: false,
+      label: '父件名称',
+      group: 'parent'
+    },
+    assemblyQty: {
+      patterns: ['组装数量','组装入库数量','组装数','装配数量','assembly_qty','组合数量','成品数量','产出数量','生产数量','完工数量'],
+      required: true,
+      label: '组装数量',
+      group: 'parent'
+    },
+    childCode: {
+      patterns: ['子件SKU','子件编码','子件SKU编码','子件代码','子件物料编码','子件号','子SKU','child_sku','原料编码','原料SKU','零件编码','零件SKU','配件编码','配件SKU','组件编码'],
+      required: true,
+      label: '子件编码',
+      group: 'child'
+    },
+    childName: {
+      patterns: ['子件名称','子件SKU名称','子件品名','子名称','child_name','原料名称','零件名称','配件名称','组件名称'],
+      required: false,
+      label: '子件名称',
+      group: 'child'
+    },
+    unitUsage: {
+      patterns: ['单件耗用量','单件用量','单位耗用量','用量','耗用量','BOM用量','unit_usage','单位用量','定额','定额用量','BOM定额','标准用量','单位用量','耗用'],
+      required: true,
+      label: '单件耗用量',
+      group: 'child'
+    }
   }
+};
+
+// 列组之间的依赖关系：金额组中，price和amount至少需要匹配一个
+const GROUP_RULES = {
+  initial: { amount: { requireOneOf: ['price', 'amount'], message: '单价和金额至少需要匹配一列（如有单价×数量=金额，如有金额÷数量=单价）' } },
+  purchase: { amount: { requireOneOf: ['price', 'amount'], message: '单价和金额至少需要匹配一列（如有单价×数量=金额，如有金额÷数量=单价）' } },
+  assembly: {}
 };
 
 function matchColumn(headers, patterns) {
   const result = {};
   const used = new Set();
   for (const key of Object.keys(patterns)) {
-    for (const pat of patterns[key]) {
+    const pats = patterns[key].patterns;
+    // 精确匹配
+    for (const pat of pats) {
       const idx = headers.findIndex((h, i) => !used.has(i) && h && h.toString().trim().replace(/\s+/g,'') === pat.replace(/\s+/g,''));
       if (idx !== -1) { result[key] = idx; used.add(idx); break; }
     }
     if (result[key] === undefined) {
-      for (const pat of patterns[key]) {
+      // 包含匹配
+      for (const pat of pats) {
         const idx = headers.findIndex((h, i) => !used.has(i) && h && h.toString().trim().includes(pat.replace(/\s+/g,'')));
         if (idx !== -1) { result[key] = idx; used.add(idx); break; }
       }
     }
   }
   return result;
+}
+
+// 验证列映射是否满足要求
+function validateMapping(colMap, tableType) {
+  const patterns = COL_PATTERNS[tableType];
+  const issues = [];
+  const missing = {};
+
+  // 检查必选字段
+  for (const key of Object.keys(patterns)) {
+    if (patterns[key].required && colMap[key] === undefined) {
+      issues.push({ key, label: patterns[key].label, severity: 'error', message: `必选字段"${patterns[key].label}"未匹配` });
+      missing[key] = true;
+    }
+  }
+
+  // 检查组规则（单价/金额二选一）
+  const rules = GROUP_RULES[tableType];
+  for (const [group, rule] of Object.entries(rules || {})) {
+    if (rule.requireOneOf) {
+      const anyMatched = rule.requireOneOf.some(k => colMap[k] !== undefined);
+      if (!anyMatched) {
+        issues.push({ key: group, label: rule.requireOneOf.map(k => patterns[k].label).join('/'), severity: 'warning', message: rule.message });
+        rule.requireOneOf.forEach(k => { if (colMap[k] === undefined) missing[k] = true; });
+      }
+    }
+  }
+
+  return { issues, missing };
 }
 
 function parseSheet(workbook, sheetName) {
@@ -103,6 +276,207 @@ function numVal(v) {
   return isNaN(n) ? 0 : n;
 }
 
+/* ========== 单文件上传区域组件 ========== */
+const UploadZone = ({ tableType, zoneClass, icon, title, subtitle, data, onFileLoaded, onRemove, gradientBg, accentColor }) => {
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleFile = useCallback((file) => {
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      alert(`${file.name}: 不支持的格式，请上传 .xlsx 或 .xls 文件`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        // 自动识别sheet
+        let targetSheet = null;
+        const sheetNames = wb.SheetNames;
+        const keywordMap = {
+          initial: /期初|初始|opening|initial|begin/i,
+          purchase: /采购|purchase|buy|procure/i,
+          assembly: /组装|装配|assembly|bom|组合/i
+        };
+        for (const sn of sheetNames) {
+          if (keywordMap[tableType].test(sn)) { targetSheet = sn; break; }
+        }
+        if (!targetSheet) {
+          // 尝试通过列头检测
+          for (const sn of sheetNames) {
+            const { headers } = parseSheet(wb, sn);
+            const headerStr = headers.join(' ');
+            if (tableType === 'initial' && /期初|opening/i.test(headerStr)) { targetSheet = sn; break; }
+            if (tableType === 'purchase' && /采购|purchase/i.test(headerStr)) { targetSheet = sn; break; }
+            if (tableType === 'assembly' && /组装|子件|父件|assembly/i.test(headerStr)) { targetSheet = sn; break; }
+          }
+        }
+        if (!targetSheet) targetSheet = sheetNames[0];
+
+        const { headers, rows } = parseSheet(wb, targetSheet);
+        const colMap = matchColumn(headers, COL_PATTERNS[tableType]);
+        const validation = validateMapping(colMap, tableType);
+        onFileLoaded({ headers, rows, colMap, sheetName: targetSheet, fileName: file.name, validation });
+      } catch (err) {
+        alert(`${file.name}: 解析失败 - ${err.message}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }, [tableType, onFileLoaded]);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = e.dataTransfer.files;
+    if (files.length > 0) handleFile(files[0]);
+  }, [handleFile]);
+
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const onDragLeave = useCallback((e) => {
+    setDragOver(false);
+  }, []);
+
+  const onChange = useCallback((e) => {
+    const files = e.target.files;
+    if (files.length > 0) handleFile(files[0]);
+    e.target.value = '';
+  }, [handleFile]);
+
+  const patterns = COL_PATTERNS[tableType];
+  const validation = data ? data.validation : null;
+
+  return (
+    <div
+      className={`upload-zone ${zoneClass} ${dragOver ? 'drag-over' : ''} ${data ? 'has-file' : ''} bg-white card-shadow-lg cursor-pointer transition-all duration-300`}
+      onDrop={onDrop}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onClick={() => !data && inputRef.current.click()}
+    >
+      <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onChange}/>
+
+      {/* 标题栏 */}
+      <div className={`px-5 py-3 flex items-center justify-between ${gradientBg} rounded-t-xl`}>
+        <div className="flex items-center gap-2.5">
+          <span className="text-xl">{icon}</span>
+          <div>
+            <h3 className="font-bold text-white text-sm">{title}</h3>
+            <p className="text-xs text-white/70">{subtitle}</p>
+          </div>
+        </div>
+        {data && (
+          <span className="text-xs bg-white/20 text-white px-2.5 py-1 rounded-full font-medium backdrop-blur-sm">
+            {data.rows.length} 行数据
+          </span>
+        )}
+      </div>
+
+      <div className="p-5">
+        {!data ? (
+          /* 空状态 - 上传提示 */
+          <div className="flex flex-col items-center gap-3 py-6">
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${gradientBg} shadow-lg`}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <div className="text-center">
+              <p className="text-slate-600 font-medium text-sm">拖拽文件到此处，或点击选择</p>
+              <p className="text-xs text-slate-400 mt-1">支持 .xlsx / .xls，限1个文件</p>
+            </div>
+          </div>
+        ) : (
+          /* 已上传状态 - 显示详情 */
+          <div className="space-y-3 fade-in">
+            {/* 文件信息 */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span className="font-medium text-slate-600">{data.fileName}</span>
+                <span className="text-slate-400">→</span>
+                <span>工作表: {data.sheetName}</span>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                className="remove-btn w-6 h-6 flex items-center justify-center rounded-full text-red-400 hover:text-red-600"
+                title="移除文件"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            {/* 列映射结果 */}
+            <div className="bg-slate-50/80 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-slate-600">列映射结果</span>
+                <div className="flex items-center gap-2">
+                  <span className="field-required text-[10px] px-1.5 py-0.5 rounded font-medium">必选</span>
+                  <span className="field-optional text-[10px] px-1.5 py-0.5 rounded font-medium">可选</span>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {Object.keys(patterns).map(key => {
+                  const def = patterns[key];
+                  const colIdx = data.colMap[key];
+                  const isMapped = colIdx !== undefined;
+                  const isReq = def.required;
+                  const isGroupRuleMissing = validation && validation.missing[key];
+
+                  let statusIcon, statusColor;
+                  if (isMapped) {
+                    statusIcon = '✓';
+                    statusColor = 'map-ok';
+                  } else if (isReq || isGroupRuleMissing) {
+                    statusIcon = '✗';
+                    statusColor = isReq ? 'map-missing-required' : 'map-missing-optional';
+                  } else {
+                    statusIcon = '—';
+                    statusColor = 'map-missing-optional';
+                  }
+
+                  return (
+                    <div key={key} className="flex items-center gap-2 text-xs">
+                      <span className={`font-bold ${statusColor}`}>{statusIcon}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${isReq ? 'field-required' : 'field-optional'}`}>
+                        {isReq ? '必选' : '可选'}
+                      </span>
+                      <span className="text-slate-500 w-20 truncate">{def.label}</span>
+                      {isMapped ? (
+                        <>
+                          <span className="text-slate-400">→</span>
+                          <span className="font-medium text-slate-700 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-200">{data.headers[colIdx]}</span>
+                        </>
+                      ) : (
+                        <span className="text-slate-300 italic">未匹配</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 验证提示 */}
+            {validation && validation.issues.length > 0 && (
+              <div className="space-y-1.5">
+                {validation.issues.map((issue, i) => (
+                  <div key={i} className={`flex items-start gap-1.5 text-xs px-3 py-2 rounded-lg ${issue.severity === 'error' ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-amber-50 text-amber-600 border border-amber-100'}`}>
+                    <span>{issue.severity === 'error' ? '⛔' : '⚠️'}</span>
+                    <span>{issue.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 /* ========== SVG 图表组件 ========== */
 const BarChart = ({ data, width, height, title }) => {
   if (!data || data.length === 0) return null;
@@ -117,6 +491,17 @@ const BarChart = ({ data, width, height, title }) => {
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <defs>
+        <linearGradient id="barInit" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#93c5fd"/><stop offset="100%" stopColor="#bfdbfe"/>
+        </linearGradient>
+        <linearGradient id="barPurch" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3b82f6"/><stop offset="100%" stopColor="#60a5fa"/>
+        </linearGradient>
+        <linearGradient id="barAsm" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1e40af"/><stop offset="100%" stopColor="#2563eb"/>
+        </linearGradient>
+      </defs>
       <text x={width/2} y={18} textAnchor="middle" fontSize={13} fontWeight={600} fill="#334155">{title}</text>
       {data.map((d, i) => {
         const x = margin.left + i * gap + gap/2 - barW/2;
@@ -126,9 +511,9 @@ const BarChart = ({ data, width, height, title }) => {
         const baseY = margin.top + ch;
         return (
           <g key={i}>
-            <rect x={x} y={baseY - hI - hP - hA} width={barW} height={hA} fill={colors.assembly} rx={1}/>
-            <rect x={x} y={baseY - hI - hP} width={barW} height={hP} fill={colors.purchase} rx={1}/>
-            <rect x={x} y={baseY - hI} width={barW} height={hI} fill={colors.initial} rx={1}/>
+            <rect x={x} y={baseY - hI - hP - hA} width={barW} height={hA} fill="url(#barAsm)" rx={2}/>
+            <rect x={x} y={baseY - hI - hP} width={barW} height={hP} fill="url(#barPurch)" rx={2}/>
+            <rect x={x} y={baseY - hI} width={barW} height={hI} fill="url(#barInit)" rx={2}/>
             <text x={x + barW/2} y={baseY + 14} textAnchor="middle" fontSize={8} fill="#64748b" transform={`rotate(-45,${x+barW/2},${baseY+14})`}>{d.label.length > 8 ? d.label.slice(0,8)+'…' : d.label}</text>
           </g>
         );
@@ -155,7 +540,7 @@ const DonutChart = ({ data, width, height, title }) => {
   const outerR = Math.min(width, height) / 2 - 30;
   const innerR = outerR * 0.55;
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
-  const colors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
+  const colors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
   let startAngle = -Math.PI / 2;
   const slices = data.map((d, i) => {
@@ -200,14 +585,26 @@ const HBarChart = ({ data, width, height, title }) => {
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <defs>
+        <linearGradient id="hbar1" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#2563eb"/><stop offset="100%" stopColor="#3b82f6"/>
+        </linearGradient>
+        <linearGradient id="hbar2" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#3b82f6"/><stop offset="100%" stopColor="#60a5fa"/>
+        </linearGradient>
+        <linearGradient id="hbar3" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#93c5fd"/><stop offset="100%" stopColor="#bfdbfe"/>
+        </linearGradient>
+      </defs>
       <text x={width/2} y={18} textAnchor="middle" fontSize={13} fontWeight={600} fill="#334155">{title}</text>
       {data.map((d, i) => {
         const y = margin.top + i * gap + gap/2 - barH/2;
         const bw = (d.value / maxVal) * cw;
+        const grad = i < 3 ? 'url(#hbar1)' : i < 10 ? 'url(#hbar2)' : 'url(#hbar3)';
         return (
           <g key={i}>
             <text x={margin.left - 6} y={y + barH/2 + 4} textAnchor="end" fontSize={9} fill="#475569">{d.label.length > 10 ? d.label.slice(0,10)+'…' : d.label}</text>
-            <rect x={margin.left} y={y} width={bw} height={barH} fill={i < 3 ? '#2563eb' : i < 10 ? '#3b82f6' : '#93c5fd'} rx={3}/>
+            <rect x={margin.left} y={y} width={bw} height={barH} fill={grad} rx={3}/>
             <text x={margin.left + bw + 6} y={y + barH/2 + 4} fontSize={9} fill="#64748b">{d.value.toFixed(2)}</text>
           </g>
         );
@@ -225,96 +622,32 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('upload');
   const [processing, setProcessing] = useState(false);
   const [errors, setErrors] = useState([]);
-  const fileInputRef = useRef(null);
 
-  const handleFiles = useCallback((files) => {
-    const newErrors = [];
-    Array.from(files).forEach(file => {
-      if (!/\.(xlsx|xls)$/i.test(file.name)) {
-        newErrors.push(`${file.name}: 不支持的格式，请上传 .xlsx 或 .xls 文件`);
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const wb = XLSX.read(e.target.result, { type: 'array' });
-          const sheetNames = wb.SheetNames;
-          // Try to identify sheets by name patterns
-          let initialSheet = null, purchaseSheet = null, assemblySheet = null;
-          for (const sn of sheetNames) {
-            const lower = sn.toLowerCase();
-            if (/期初|初始|opening|initial|begin/i.test(lower)) initialSheet = sn;
-            else if (/采购|purchase|buy|procure/i.test(lower)) purchaseSheet = sn;
-            else if (/组装|装配|assembly|bom|组合/i.test(lower)) assemblySheet = sn;
-          }
-          // Fallback: if only one sheet or no match, try to detect by column headers
-          if (sheetNames.length >= 3 && !initialSheet && !purchaseSheet && !assemblySheet) {
-            initialSheet = sheetNames[0];
-            purchaseSheet = sheetNames[1];
-            assemblySheet = sheetNames[2];
-          } else if (sheetNames.length === 1) {
-            const { headers } = parseSheet(wb, sheetNames[0]);
-            const hasInitial = headers.some(h => /期初|opening|initial/i.test(h));
-            const hasPurchase = headers.some(h => /采购|purchase/i.test(h));
-            const hasAssembly = headers.some(h => /组装|assembly|子件|父件/i.test(h));
-            if (hasAssembly) assemblySheet = sheetNames[0];
-            else if (hasPurchase) purchaseSheet = sheetNames[0];
-            else if (hasInitial) initialSheet = sheetNames[0];
-          } else if (sheetNames.length === 2) {
-            for (const sn of sheetNames) {
-              const { headers } = parseSheet(wb, sn);
-              if (headers.some(h => /组装|子件|父件|assembly/i.test(h)) && !assemblySheet) assemblySheet = sn;
-              else if (headers.some(h => /采购|purchase/i.test(h)) && !purchaseSheet) purchaseSheet = sn;
-              else if (headers.some(h => /期初|opening/i.test(h)) && !initialSheet) initialSheet = sn;
-            }
-            if (!initialSheet && !purchaseSheet) { initialSheet = sheetNames[0]; purchaseSheet = sheetNames[1]; }
-          }
-
-          // Fallback: assign remaining sheets
-          const assigned = new Set([initialSheet, purchaseSheet, assemblySheet].filter(Boolean));
-          const unassigned = sheetNames.filter(s => !assigned.has(s));
-          if (!initialSheet && unassigned.length > 0) { initialSheet = unassigned.shift(); }
-          if (!purchaseSheet && unassigned.length > 0) { purchaseSheet = unassigned.shift(); }
-          if (!assemblySheet && unassigned.length > 0) { assemblySheet = unassigned.shift(); }
-
-          if (initialSheet) {
-            const { headers, rows } = parseSheet(wb, initialSheet);
-            const colMap = matchColumn(headers, COL_PATTERNS.initial);
-            setInitialData({ headers, rows, colMap, sheetName: initialSheet, fileName: file.name });
-          }
-          if (purchaseSheet) {
-            const { headers, rows } = parseSheet(wb, purchaseSheet);
-            const colMap = matchColumn(headers, COL_PATTERNS.purchase);
-            setPurchaseData({ headers, rows, colMap, sheetName: purchaseSheet, fileName: file.name });
-          }
-          if (assemblySheet) {
-            const { headers, rows } = parseSheet(wb, assemblySheet);
-            const colMap = matchColumn(headers, COL_PATTERNS.assembly);
-            setAssemblyData({ headers, rows, colMap, sheetName: assemblySheet, fileName: file.name });
-          }
-        } catch (err) {
-          newErrors.push(`${file.name}: 解析失败 - ${err.message}`);
-        }
-      };
-      reader.readAsArrayBuffer(file);
-    });
-    if (newErrors.length > 0) setErrors(prev => [...prev, ...newErrors]);
+  const handleFileLoaded = useCallback((tableType) => (data) => {
+    if (tableType === 'initial') setInitialData(data);
+    else if (tableType === 'purchase') setPurchaseData(data);
+    else if (tableType === 'assembly') setAssemblyData(data);
   }, []);
 
-  const onDrop = useCallback((e) => {
-    e.preventDefault();
-    e.currentTarget.classList.remove('drag-over');
-    handleFiles(e.dataTransfer.files);
-  }, [handleFiles]);
-
-  const onDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.currentTarget.classList.add('drag-over');
+  const handleRemove = useCallback((tableType) => () => {
+    if (tableType === 'initial') setInitialData(null);
+    else if (tableType === 'purchase') setPurchaseData(null);
+    else if (tableType === 'assembly') setAssemblyData(null);
   }, []);
 
-  const onDragLeave = useCallback((e) => {
-    e.currentTarget.classList.remove('drag-over');
-  }, []);
+  // 检查是否可以计算
+  const canCalculate = useMemo(() => {
+    if (!initialData || !purchaseData) return false;
+    // 检查必选字段是否都已匹配
+    const initVal = validateMapping(initialData.colMap, 'initial');
+    const purchVal = validateMapping(purchaseData.colMap, 'purchase');
+    const hasInitError = initVal.issues.some(i => i.severity === 'error');
+    const hasPurchError = purchVal.issues.some(i => i.severity === 'error');
+    // 还需要至少有price或amount
+    const initHasPriceOrAmount = initialData.colMap.price !== undefined || initialData.colMap.amount !== undefined;
+    const purchHasPriceOrAmount = purchaseData.colMap.price !== undefined || purchaseData.colMap.amount !== undefined;
+    return !hasInitError && !hasPurchError && initHasPriceOrAmount && purchHasPriceOrAmount;
+  }, [initialData, purchaseData]);
 
   const calculate = useCallback(() => {
     if (!initialData || !purchaseData) {
@@ -326,22 +659,36 @@ const App = () => {
 
     setTimeout(() => {
       try {
+        // 辅助函数：根据列映射获取金额和单价
+        const getQtyAndAmount = (row, colMap, qtyKey = 'qty', priceKey = 'price', amountKey = 'amount') => {
+          const qty = numVal(row[colMap[qtyKey]]);
+          const price = colMap[priceKey] !== undefined ? numVal(row[colMap[priceKey]]) : 0;
+          const amount = colMap[amountKey] !== undefined ? numVal(row[colMap[amountKey]]) : 0;
+          // 优先使用金额列，如果金额列未匹配则用单价×数量
+          let finalAmount;
+          if (colMap[amountKey] !== undefined && amount !== 0) {
+            finalAmount = amount;
+          } else if (colMap[priceKey] !== undefined && price !== 0) {
+            finalAmount = qty * price;
+          } else {
+            finalAmount = amount || qty * price;
+          }
+          return { qty, price, amount: finalAmount };
+        };
+
         // Build initial inventory map
         const initMap = {};
         initialData.rows.forEach(row => {
           const code = row[initialData.colMap.skuCode] || '';
           if (!code) return;
-          const name = row[initialData.colMap.skuName] || '';
-          const type = (row[initialData.colMap.skuType] || '').toString().trim();
-          const qty = numVal(row[initialData.colMap.qty]);
-          const price = numVal(row[initialData.colMap.price]);
-          const amount = numVal(row[initialData.colMap.amount]);
+          const name = initialData.colMap.skuName !== undefined ? (row[initialData.colMap.skuName] || '') : '';
+          const type = initialData.colMap.skuType !== undefined ? (row[initialData.colMap.skuType] || '').toString().trim() : '';
+          const { qty, amount } = getQtyAndAmount(row, initialData.colMap);
           if (!initMap[code]) {
-            initMap[code] = { code, name, type, initQty: 0, initPrice: 0, initAmount: 0 };
+            initMap[code] = { code, name, type, initQty: 0, initAmount: 0 };
           }
           initMap[code].initQty += qty;
-          initMap[code].initAmount += (amount || qty * price);
-          if (price && !initMap[code].initPrice) initMap[code].initPrice = price;
+          initMap[code].initAmount += amount;
         });
 
         // Build purchase map
@@ -349,29 +696,26 @@ const App = () => {
         purchaseData.rows.forEach(row => {
           const code = row[purchaseData.colMap.skuCode] || '';
           if (!code) return;
-          const name = row[purchaseData.colMap.skuName] || '';
-          const type = (row[purchaseData.colMap.skuType] || '').toString().trim();
-          const qty = numVal(row[purchaseData.colMap.qty]);
-          const price = numVal(row[purchaseData.colMap.price]);
-          const amount = numVal(row[purchaseData.colMap.amount]);
+          const name = purchaseData.colMap.skuName !== undefined ? (row[purchaseData.colMap.skuName] || '') : '';
+          const type = purchaseData.colMap.skuType !== undefined ? (row[purchaseData.colMap.skuType] || '').toString().trim() : '';
+          const { qty, amount } = getQtyAndAmount(row, purchaseData.colMap);
           if (!purchMap[code]) {
-            purchMap[code] = { code, name, type, purchQty: 0, purchPrice: 0, purchAmount: 0 };
+            purchMap[code] = { code, name, type, purchQty: 0, purchAmount: 0 };
           }
           purchMap[code].purchQty += qty;
-          purchMap[code].purchAmount += (amount || qty * price);
-          if (price && !purchMap[code].purchPrice) purchMap[code].purchPrice = price;
+          purchMap[code].purchAmount += amount;
         });
 
         // Build assembly data
-        const assemblyMap = {}; // parentCode -> { children: [{childCode, unitUsage}], totalQty }
-        const parentChildRelation = {}; // parentCode -> [{ childCode, unitUsage }]
+        const assemblyMap = {};
+        const parentChildRelation = {};
         if (assemblyData && assemblyData.colMap.parentCode !== undefined) {
           assemblyData.rows.forEach(row => {
             const parentCode = row[assemblyData.colMap.parentCode] || '';
-            const parentName = row[assemblyData.colMap.parentName] || '';
+            const parentName = assemblyData.colMap.parentName !== undefined ? (row[assemblyData.colMap.parentName] || '') : '';
             const assemblyQty = numVal(row[assemblyData.colMap.assemblyQty]);
             const childCode = row[assemblyData.colMap.childCode] || '';
-            const childName = row[assemblyData.colMap.childName] || '';
+            const childName = assemblyData.colMap.childName !== undefined ? (row[assemblyData.colMap.childName] || '') : '';
             const unitUsage = numVal(row[assemblyData.colMap.unitUsage]);
             if (!parentCode) return;
             if (!assemblyMap[parentCode]) {
@@ -398,13 +742,12 @@ const App = () => {
           if (initMap[code]) type = initMap[code].type;
           else if (purchMap[code]) type = purchMap[code].type;
           if (!type) type = isParent ? '父件' : '子件';
-          // Override: if in assemblyMap as parent, it's definitely a parent
           if (isParent) type = '父件';
           const name = (initMap[code] && initMap[code].name) || (purchMap[code] && purchMap[code].name) || (assemblyMap[code] && assemblyMap[code].name) || code;
           skuInfo[code] = { code, name, type };
         });
 
-        // Step 1: Calculate child (子件) weighted average price
+        // Step 1: Calculate child weighted average price
         const weightedPrice = {};
         const childCodes = [...allCodes].filter(c => skuInfo[c].type !== '父件');
         childCodes.forEach(code => {
@@ -417,7 +760,7 @@ const App = () => {
           weightedPrice[code] = totalQty > 0 ? totalAmount / totalQty : 0;
         });
 
-        // Step 2: Calculate parent (父件) weighted average price
+        // Step 2: Calculate parent weighted average price
         const parentResultData = {};
         parentCodes.forEach(parentCode => {
           const initQty = initMap[parentCode] ? initMap[parentCode].initQty : 0;
@@ -425,12 +768,10 @@ const App = () => {
           const purchQty = purchMap[parentCode] ? purchMap[parentCode].purchQty : 0;
           const purchAmount = purchMap[parentCode] ? purchMap[parentCode].purchAmount : 0;
 
-          // Assembly amount = totalAssemblyQty * sum(childWeightedPrice * unitUsage)
           const asm = assemblyMap[parentCode];
           const totalAssemblyQty = asm ? asm.totalQty : 0;
           let assemblyAmount = 0;
           if (asm && asm.children.length > 0) {
-            // Group by childCode and sum unitUsage (in case same child appears in multiple rows)
             const childUsageMap = {};
             asm.children.forEach(c => {
               if (!childUsageMap[c.childCode]) childUsageMap[c.childCode] = 0;
@@ -495,16 +836,12 @@ const App = () => {
       ...results.map(r => [r.code, r.name, r.type, r.initQty, r.initAmount, r.purchQty, r.purchAmount, r.assemblyQty, r.assemblyAmount, r.totalQty, r.totalAmount, r.weightedPrice])
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    // Set column widths
-    ws['!cols'] = [
-      {wch:15},{wch:20},{wch:8},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:14}
-    ];
+    ws['!cols'] = [{wch:15},{wch:20},{wch:8},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:12},{wch:14},{wch:14}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '期末库存加权平均单价');
     XLSX.writeFile(wb, '期末库存加权平均单价.xlsx');
   }, [results]);
 
-  // Computed stats
   const stats = useMemo(() => {
     if (!results) return null;
     const childResults = results.filter(r => r.type !== '父件');
@@ -557,25 +894,28 @@ const App = () => {
   const formatMoney = (n) => n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen" style={{background:'linear-gradient(135deg,#f0f4ff 0%,#f8fafc 40%,#fef9f0 100%)'}}>
+      {/* 顶部装饰渐变条 */}
+      <div className="top-gradient-bar"></div>
+
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 card-shadow">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/60 card-shadow sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-primary-600 rounded-lg flex items-center justify-center">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background:'linear-gradient(135deg,#3b82f6,#8b5cf6)'}}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
             </div>
             <div>
               <h1 className="text-lg font-bold text-slate-800">库存加权平均单价计算器</h1>
-              <p className="text-xs text-slate-400">月末一次加权平均法</p>
+              <p className="text-xs text-slate-400">月末一次加权平均法 · 先算子件再算父件</p>
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setActiveTab('upload')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'upload' ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-              数据导入
+            <button onClick={() => setActiveTab('upload')} className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${activeTab === 'upload' ? 'text-white shadow-lg shadow-blue-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`} style={activeTab === 'upload' ? {background:'linear-gradient(135deg,#3b82f6,#2563eb)'} : {}}>
+              📥 数据导入
             </button>
-            <button onClick={() => results && setActiveTab('results')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'results' ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'} ${!results ? 'opacity-50 cursor-not-allowed' : ''}`}>
-              计算结果
+            <button onClick={() => results && setActiveTab('results')} className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${activeTab === 'results' ? 'text-white shadow-lg shadow-blue-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'} ${!results ? 'opacity-50 cursor-not-allowed' : ''}`} style={activeTab === 'results' ? {background:'linear-gradient(135deg,#3b82f6,#2563eb)'} : {}}>
+              📊 计算结果
             </button>
           </div>
         </div>
@@ -583,115 +923,128 @@ const App = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         {errors.length > 0 && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4 fade-in">
-            {errors.map((err, i) => <p key={i} className="text-red-600 text-sm">⚠ {err}</p>)}
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-4 fade-in">
+            {errors.map((err, i) => <p key={i} className="text-red-600 text-sm">⛔ {err}</p>)}
             <button onClick={() => setErrors([])} className="mt-2 text-xs text-red-400 hover:text-red-600">关闭</button>
           </div>
         )}
 
         {activeTab === 'upload' && (
           <div className="fade-in space-y-6">
-            {/* Upload Zone */}
-            <div
-              className="upload-zone p-8 text-center cursor-pointer bg-white"
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onClick={() => fileInputRef.current.click()}
-            >
-              <input ref={fileInputRef} type="file" accept=".xlsx,.xls" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)}/>
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-16 h-16 bg-primary-50 rounded-full flex items-center justify-center">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                </div>
-                <p className="text-slate-600 font-medium">拖拽 Excel 文件到此处，或点击选择文件</p>
-                <p className="text-xs text-slate-400">支持 .xlsx / .xls 格式，可批量上传多个文件</p>
-                <p className="text-xs text-slate-400">系统将自动识别：期初库存表、采购入库表、组装入库表</p>
+            {/* 三个分区域上传 */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <UploadZone
+                tableType="initial"
+                zoneClass="zone-initial"
+                icon="📦"
+                title="期初库存表"
+                subtitle="上传期初库存数量与金额"
+                data={initialData}
+                onFileLoaded={handleFileLoaded('initial')}
+                onRemove={handleRemove('initial')}
+                gradientBg="bg-gradient-to-r from-blue-500 to-cyan-500"
+                accentColor="blue"
+              />
+              <UploadZone
+                tableType="purchase"
+                zoneClass="zone-purchase"
+                icon="🛒"
+                title="采购入库表"
+                subtitle="上传采购入库数量与金额"
+                data={purchaseData}
+                onFileLoaded={handleFileLoaded('purchase')}
+                onRemove={handleRemove('purchase')}
+                gradientBg="bg-gradient-to-r from-emerald-500 to-teal-500"
+                accentColor="green"
+              />
+              <UploadZone
+                tableType="assembly"
+                zoneClass="zone-assembly"
+                icon="🔧"
+                title="组装入库表"
+                subtitle="上传组装BOM与入库数量"
+                data={assemblyData}
+                onFileLoaded={handleFileLoaded('assembly')}
+                onRemove={handleRemove('assembly')}
+                gradientBg="bg-gradient-to-r from-amber-500 to-orange-500"
+                accentColor="amber"
+              />
+            </div>
+
+            {/* 数据总览提示 */}
+            <div className="flex items-center justify-center gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <span className={`w-3 h-3 rounded-full ${initialData ? 'bg-green-400 shadow-sm shadow-green-200' : 'bg-slate-200'}`}></span>
+                <span className={initialData ? 'text-green-700 font-medium' : 'text-slate-400'}>期初库存 {initialData ? '✓' : '待上传'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`w-3 h-3 rounded-full ${purchaseData ? 'bg-green-400 shadow-sm shadow-green-200' : 'bg-slate-200'}`}></span>
+                <span className={purchaseData ? 'text-green-700 font-medium' : 'text-slate-400'}>采购入库 {purchaseData ? '✓' : '待上传'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`w-3 h-3 rounded-full ${assemblyData ? 'bg-green-400 shadow-sm shadow-green-200' : 'bg-slate-200'}`}></span>
+                <span className={assemblyData ? 'text-green-700 font-medium' : 'text-slate-400'}>组装入库 {assemblyData ? '✓' : '可选'}</span>
               </div>
             </div>
 
-            {/* Data Preview Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { data: initialData, title: '期初库存数据', icon: '📦', color: 'blue', fields: COL_PATTERNS.initial },
-                { data: purchaseData, title: '采购入库数据', icon: '🛒', color: 'green', fields: COL_PATTERNS.purchase },
-                { data: assemblyData, title: '组装入库数据', icon: '🔧', color: 'amber', fields: COL_PATTERNS.assembly }
-              ].map(({ data, title, icon, color, fields }, idx) => (
-                <div key={idx} className={`bg-white rounded-xl border border-slate-200 overflow-hidden card-shadow`}>
-                  <div className={`px-4 py-3 border-b border-slate-100 flex items-center gap-2`}>
-                    <span className="text-lg">{icon}</span>
-                    <span className="font-semibold text-slate-700 text-sm">{title}</span>
-                    {data && <span className="ml-auto text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full">{data.rows.length} 行</span>}
-                  </div>
-                  <div className="p-4">
-                    {data ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                          来自: {data.fileName} → {data.sheetName}
-                        </div>
-                        <div className="text-xs text-slate-500 mb-1">检测到的列映射:</div>
-                        <div className="space-y-1">
-                          {Object.entries(data.colMap).map(([key, colIdx]) => (
-                            <div key={key} className="flex items-center gap-2 text-xs">
-                              <span className="inline-block w-2 h-2 bg-green-400 rounded-full"></span>
-                              <span className="text-slate-500">{key}</span>
-                              <span className="text-slate-400">→</span>
-                              <span className="font-medium text-slate-700">{data.headers[colIdx]}</span>
-                            </div>
-                          ))}
-                        </div>
-                        {Object.keys(fields).filter(k => data.colMap[k] === undefined).length > 0 && (
-                          <div className="mt-2 p-2 bg-amber-50 rounded text-xs text-amber-700">
-                            ⚠ 未匹配列: {Object.keys(fields).filter(k => data.colMap[k] === undefined).join(', ')}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-slate-400 text-center py-4">暂无数据</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Calculate Button */}
+            {/* 计算按钮 */}
             <div className="flex justify-center">
               <button
                 onClick={calculate}
-                disabled={processing || !initialData || !purchaseData}
-                className={`px-8 py-3 rounded-xl text-white font-semibold text-base transition shadow-lg ${processing || !initialData || !purchaseData ? 'bg-slate-300 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700 shadow-primary-200'}`}
+                disabled={processing || !canCalculate}
+                className={`px-10 py-3.5 rounded-2xl text-white font-bold text-base transition-all duration-300 ${processing || !canCalculate ? 'bg-slate-300 cursor-not-allowed shadow-none' : 'shadow-xl shadow-blue-200 hover:shadow-2xl hover:shadow-blue-300 hover:-translate-y-0.5'}`}
+                style={canCalculate && !processing ? {background:'linear-gradient(135deg,#3b82f6,#8b5cf6)'} : {}}
               >
                 {processing ? (
                   <span className="flex items-center gap-2">
                     <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                     计算中...
                   </span>
-                ) : '开始计算'}
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    开始计算
+                  </span>
+                )}
               </button>
             </div>
 
-            {/* Formula explanation */}
-            <div className="bg-white rounded-xl border border-slate-200 p-6 card-shadow">
-              <h3 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            {!canCalculate && initialData && purchaseData && (
+              <div className="text-center">
+                <p className="text-sm text-amber-600 bg-amber-50 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-amber-200">
+                  ⚠️ 必选字段未完全匹配或单价/金额列至少需要一列，请检查列映射结果
+                </p>
+              </div>
+            )}
+
+            {/* 公式说明 */}
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 p-6 card-shadow-lg">
+              <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-base">
+                <span className="w-7 h-7 rounded-lg flex items-center justify-center" style={{background:'linear-gradient(135deg,#3b82f6,#8b5cf6)'}}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                </span>
                 计算公式说明
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
-                <div className="bg-slate-50 rounded-lg p-4">
-                  <p className="font-medium text-slate-700 mb-1">子件加权平均单价</p>
-                  <p className="font-mono text-xs text-primary-600 bg-primary-50 p-2 rounded mt-2">
-                    = (期初库存金额 + 采购入库金额)<br/>
-                    / (期初库存数量 + 采购入库数量)
-                  </p>
+                <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-5 border border-blue-100/50">
+                  <p className="font-semibold text-blue-800 mb-2">子件加权平均单价</p>
+                  <div className="bg-white/80 rounded-lg p-3 mt-2 border border-blue-100/50">
+                    <p className="font-mono text-sm text-blue-700">
+                      = (期初库存金额 + 采购入库金额)<br/>
+                      / (期初库存数量 + 采购入库数量)
+                    </p>
+                  </div>
+                  <p className="text-xs text-blue-500/80 mt-2">💡 如有单价列：金额 = 单价 × 数量；如有金额列：直接使用金额</p>
                 </div>
-                <div className="bg-slate-50 rounded-lg p-4">
-                  <p className="font-medium text-slate-700 mb-1">父件加权平均单价</p>
-                  <p className="font-mono text-xs text-primary-600 bg-primary-50 p-2 rounded mt-2">
-                    = (期初库存金额 + 采购入库金额 + 组装入库金额)<br/>
-                    / (期初库存数量 + 采购入库数量 + 组装入库数量)
-                  </p>
-                  <p className="text-xs text-slate-500 mt-2">组装入库金额 = 总组装数量 × Σ(子件加权平均单价 × 单件耗用量)</p>
+                <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-5 border border-amber-100/50">
+                  <p className="font-semibold text-amber-800 mb-2">父件加权平均单价</p>
+                  <div className="bg-white/80 rounded-lg p-3 mt-2 border border-amber-100/50">
+                    <p className="font-mono text-sm text-amber-700">
+                      = (期初金额 + 采购金额 + 组装金额)<br/>
+                      / (期初数量 + 采购数量 + 组装数量)
+                    </p>
+                  </div>
+                  <p className="text-xs text-amber-500/80 mt-2">🔧 组装金额 = 组装数量 × Σ(子件加权平均单价 × 单件耗用量)</p>
                 </div>
               </div>
             </div>
@@ -701,54 +1054,53 @@ const App = () => {
         {activeTab === 'results' && results && stats && (
           <div className="fade-in space-y-6">
             {/* Stats Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
-                { label: 'SKU总数', value: stats.totalSKU, icon: '📊', color: 'blue' },
-                { label: '子件数', value: stats.childCount, icon: '🔩', color: 'cyan' },
-                { label: '父件数', value: stats.parentCount, icon: '🏗', color: 'indigo' },
-                { label: '期初金额', value: formatNum(stats.totalInit), icon: '💰', color: 'emerald' },
-                { label: '采购金额', value: formatNum(stats.totalPurch), icon: '🛒', color: 'amber' },
-                { label: '组装金额', value: formatNum(stats.totalAssembly), icon: '🔧', color: 'rose' }
-              ].map(({ label, value, icon, color }, i) => (
-                <div key={i} className="bg-white rounded-xl border border-slate-200 p-4 card-shadow">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-base">{icon}</span>
-                    <span className="text-xs text-slate-500">{label}</span>
-                  </div>
-                  <p className="text-xl font-bold text-slate-800">{value}</p>
+                { label: 'SKU总数', value: stats.totalSKU, cls: 'stat-card-blue' },
+                { label: '子件数', value: stats.childCount, cls: 'stat-card-cyan' },
+                { label: '父件数', value: stats.parentCount, cls: 'stat-card-indigo' },
+                { label: '期初金额', value: formatNum(stats.totalInit), cls: 'stat-card-emerald' },
+                { label: '采购金额', value: formatNum(stats.totalPurch), cls: 'stat-card-amber' },
+                { label: '组装金额', value: formatNum(stats.totalAssembly), cls: 'stat-card-rose' }
+              ].map(({ label, value, cls }, i) => (
+                <div key={i} className={`${cls} rounded-2xl p-4 card-shadow-lg`}>
+                  <p className="text-xs text-white/70 mb-1">{label}</p>
+                  <p className="text-2xl font-bold">{value}</p>
                 </div>
               ))}
             </div>
 
             {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-white rounded-xl border border-slate-200 p-4 card-shadow overflow-x-auto">
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 p-5 card-shadow-lg overflow-x-auto">
                 <BarChart data={barChartData} width={Math.max(600, barChartData.length * 35)} height={320} title="Top 20 SKU 金额构成（期初/采购/组装）"/>
                 <div className="flex justify-center gap-4 mt-2 text-xs text-slate-500">
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"/>期初金额</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded"/>采购金额</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-800 rounded"/>组装金额</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{background:'linear-gradient(180deg,#93c5fd,#bfdbfe)'}}/>期初金额</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{background:'linear-gradient(180deg,#3b82f6,#60a5fa)'}}/>采购金额</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{background:'linear-gradient(180deg,#1e40af,#2563eb)'}}/>组装金额</span>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-4 card-shadow">
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 p-5 card-shadow-lg">
                 <DonutChart data={donutData} width={400} height={320} title="子件/父件金额占比"/>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4 card-shadow overflow-x-auto">
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 p-5 card-shadow-lg overflow-x-auto">
               <HBarChart data={rankData} width={Math.max(600, rankData.length > 0 ? 600 : 400)} height={Math.max(400, rankData.length * 24 + 60)} title="加权平均单价排行 Top 20"/>
             </div>
 
             {/* Detail Table */}
-            <div className="bg-white rounded-xl border border-slate-200 card-shadow overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 card-shadow-lg overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100/80 flex items-center justify-between">
+                <h3 className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-md flex items-center justify-center" style={{background:'linear-gradient(135deg,#3b82f6,#8b5cf6)'}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+                  </span>
                   计算明细表
                 </h3>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-slate-400">共 {results.length} 条记录</span>
-                  <button onClick={exportExcel} className="flex items-center gap-1.5 px-4 py-2 bg-primary-600 text-white text-xs font-medium rounded-lg hover:bg-primary-700 transition">
+                  <button onClick={exportExcel} className="flex items-center gap-1.5 px-5 py-2.5 text-white text-xs font-semibold rounded-xl hover:shadow-lg hover:shadow-blue-200 transition-all duration-200" style={{background:'linear-gradient(135deg,#3b82f6,#8b5cf6)'}}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     导出 Excel
                   </button>
@@ -756,30 +1108,30 @@ const App = () => {
               </div>
               <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50 sticky top-0 z-10">
+                  <thead className="sticky top-0 z-10" style={{background:'linear-gradient(180deg,#f8fafc,#f1f5f9)'}}>
                     <tr>
                       {['SKU编码','SKU名称','类型','期初数量','期初金额','采购数量','采购金额','组装数量','组装金额','期末数量','期末金额','加权平均单价'].map((h, i) => (
-                        <th key={i} className={`px-3 py-2.5 text-left text-xs font-semibold text-slate-500 whitespace-nowrap ${i >= 3 ? 'text-right' : ''}`}>{h}</th>
+                        <th key={i} className={`px-3 py-3 text-left text-xs font-bold text-slate-500 whitespace-nowrap ${i >= 3 ? 'text-right' : ''} border-b border-slate-200`}>{h}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100/80">
                     {results.map((r, i) => (
-                      <tr key={i} className="table-row">
-                        <td className="px-3 py-2 text-slate-700 font-mono text-xs whitespace-nowrap">{r.code}</td>
-                        <td className="px-3 py-2 text-slate-700 whitespace-nowrap max-w-[200px] truncate">{r.name}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${r.type === '父件' ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>{r.type}</span>
+                      <tr key={i} className="table-row transition-colors duration-150">
+                        <td className="px-3 py-2.5 text-slate-700 font-mono text-xs whitespace-nowrap">{r.code}</td>
+                        <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap max-w-[200px] truncate">{r.name}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${r.type === '父件' ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>{r.type}</span>
                         </td>
-                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{r.initQty}</td>
-                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{formatMoney(r.initAmount)}</td>
-                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{r.purchQty}</td>
-                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{formatMoney(r.purchAmount)}</td>
-                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{r.assemblyQty}</td>
-                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">{formatMoney(r.assemblyAmount)}</td>
-                        <td className="px-3 py-2 text-right font-medium text-slate-800 tabular-nums">{r.totalQty}</td>
-                        <td className="px-3 py-2 text-right font-medium text-slate-800 tabular-nums">{formatMoney(r.totalAmount)}</td>
-                        <td className="px-3 py-2 text-right font-bold text-primary-600 tabular-nums">{r.weightedPrice.toFixed(4)}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-600 tabular-nums">{r.initQty}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-600 tabular-nums">{formatMoney(r.initAmount)}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-600 tabular-nums">{r.purchQty}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-600 tabular-nums">{formatMoney(r.purchAmount)}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-600 tabular-nums">{r.assemblyQty}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-600 tabular-nums">{formatMoney(r.assemblyAmount)}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold text-slate-800 tabular-nums">{r.totalQty}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold text-slate-800 tabular-nums">{formatMoney(r.totalAmount)}</td>
+                        <td className="px-3 py-2.5 text-right font-bold tabular-nums" style={{color:'#6366f1'}}>{r.weightedPrice.toFixed(4)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -791,7 +1143,7 @@ const App = () => {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white mt-8">
+      <footer className="border-t border-slate-200/60 bg-white/60 backdrop-blur-sm mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 text-center text-xs text-slate-400">
           库存加权平均单价计算器 · 月末一次加权平均法 · 数据仅在本地浏览器处理，不上传至服务器
         </div>
