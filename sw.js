@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "inventory-cost-calculator";
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const CACHE_NAME = `${CACHE_PREFIX}-${CACHE_VERSION}`;
 const REGISTRATION_SCOPE = self.registration.scope;
 const APP_SHELL_URL = new URL("./", REGISTRATION_SCOPE).href;
