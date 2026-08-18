@@ -1,0 +1,29 @@
+{
+  "id": ".",
+  "name": "衡仓 · 库存成本工作台",
+  "short_name": "衡仓",
+  "description": "批量导入库存、采购与组装数据，计算月末一次加权平均成本。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f5f8fc",
+  "theme_color": "#102033",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "prefer_related_applications": false
+}
